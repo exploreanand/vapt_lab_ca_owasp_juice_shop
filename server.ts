@@ -379,6 +379,15 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
   }))
   // vuln-code-snippet end resetPasswordMortyChallenge
 
+  /* Throttle password guessing: 10 attempts per client per 5 minutes */
+  app.use('/rest/user/login', rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    validate: false,
+    // key on the socket address; X-Forwarded-For can be forged by the client
+    keyGenerator: (req: Request) => req.socket.remoteAddress ?? 'unknown'
+  }))
+
   // vuln-code-snippet start changeProductChallenge
   /** Authorization **/
   /* Checks on JWT in Authorization header */ // vuln-code-snippet hide-line
