@@ -786,13 +786,17 @@ logger.info(`Entity models ${colors.bold(Object.keys(sequelize.models).length.to
    registered twice: once here and once inside configureApp(). The module-level
    registration below runs first, so both must carry the guard. */
 const adminOnly = (req: Request, res: Response, next: NextFunction) => {
-  const token = utils.jwtFrom(req)
-  const decoded = security.verify(token) && security.decode(token)
-  if (decoded?.data?.role === security.roles.admin) {
-    next()
-  } else {
-    res.status(401).send('Unauthorized')
+  try {
+    const token = utils.jwtFrom(req)
+    const decoded = security.verify(token) && security.decode(token)
+    if (decoded?.data?.role === security.roles.admin) {
+      next()
+      return
+    }
+  } catch {
+    /* jws.verify throws on a malformed token; treat it as unauthorised */
   }
+  res.status(401).send('Unauthorized')
 }
 
 // vuln-code-snippet start exposedMetricsChallenge
