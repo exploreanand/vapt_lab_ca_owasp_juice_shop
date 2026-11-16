@@ -731,16 +731,6 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
   app.post('/snippets/fixes', utils.asyncHandler(checkCorrectFix()))
 
   /* Serve metrics before the Angular catch-all so the route is reachable in all environments */
-  /* Metrics are for operators only */
-  const adminOnly = (req: Request, res: Response, next: NextFunction) => {
-    const token = utils.jwtFrom(req)
-    const decoded = security.verify(token) && security.decode(token)
-    if (decoded?.data?.role === security.roles.admin) {
-      next()
-    } else {
-      res.status(401).send('Unauthorized')
-    }
-  }
   app.get('/metrics', adminOnly, utils.asyncHandler(metrics.serveMetrics()))
 
   app.use(utils.asyncHandler(serveAngularClient()))
@@ -792,11 +782,24 @@ while (!expectedModels.every(model => Object.keys(sequelize.models).includes(mod
 }
 logger.info(`Entity models ${colors.bold(Object.keys(sequelize.models).length.toString())} of ${colors.bold(expectedModels.length.toString())} are initialized (${colors.green('SUCCESS')})`)
 
+/* Metrics are for operators only. Defined at module scope because /metrics is
+   registered twice: once here and once inside configureApp(). The module-level
+   registration below runs first, so both must carry the guard. */
+const adminOnly = (req: Request, res: Response, next: NextFunction) => {
+  const token = utils.jwtFrom(req)
+  const decoded = security.verify(token) && security.decode(token)
+  if (decoded?.data?.role === security.roles.admin) {
+    next()
+  } else {
+    res.status(401).send('Unauthorized')
+  }
+}
+
 // vuln-code-snippet start exposedMetricsChallenge
 /* Serve metrics */
 let metricsUpdateLoop: any
 const Metrics = metrics.observeMetrics() // vuln-code-snippet neutral-line exposedMetricsChallenge
-app.get('/metrics', utils.asyncHandler(metrics.serveMetrics())) // vuln-code-snippet vuln-line exposedMetricsChallenge
+app.get('/metrics', adminOnly, utils.asyncHandler(metrics.serveMetrics())) // vuln-code-snippet vuln-line exposedMetricsChallenge
 errorhandler.title = `${config.get<string>('application.name')} (Express ${utils.version('express')})`
 
 export async function start (readyCallback?: () => void) {
