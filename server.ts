@@ -731,7 +731,17 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
   app.post('/snippets/fixes', utils.asyncHandler(checkCorrectFix()))
 
   /* Serve metrics before the Angular catch-all so the route is reachable in all environments */
-  app.get('/metrics', utils.asyncHandler(metrics.serveMetrics()))
+  /* Metrics are for operators only */
+  const adminOnly = (req: Request, res: Response, next: NextFunction) => {
+    const token = utils.jwtFrom(req)
+    const decoded = security.verify(token) && security.decode(token)
+    if (decoded?.data?.role === security.roles.admin) {
+      next()
+    } else {
+      res.status(401).send('Unauthorized')
+    }
+  }
+  app.get('/metrics', adminOnly, utils.asyncHandler(metrics.serveMetrics()))
 
   app.use(utils.asyncHandler(serveAngularClient()))
 
