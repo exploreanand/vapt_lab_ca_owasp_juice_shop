@@ -1,0 +1,20 @@
+diff --git a/server.ts b/server.ts
+index d1d9a4c..79e0229 100644
+--- a/server.ts
++++ b/server.ts
+@@ -437,6 +437,15 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+   /* Captcha Bypass challenge verification */
+   app.post('/api/Feedbacks', verify.captchaBypassChallenge())
+   /* User registration challenge verifications before finale takes over */
++  /* Registration must never let the client choose privileged fields */
++  app.post('/api/Users', (req: Request, res: Response, next: NextFunction) => {
++    req.body.role = security.roles.customer
++    delete req.body.deluxeToken
++    delete req.body.totpSecret
++    delete req.body.isActive
++    delete req.body.lastLoginIp
++    next()
++  })
+   app.post('/api/Users', (req: Request, res: Response, next: NextFunction) => {
+     if (req.body.email !== undefined && req.body.password !== undefined && req.body.passwordRepeat !== undefined) {
+       if (req.body.email.length !== 0 && req.body.password.length !== 0) {

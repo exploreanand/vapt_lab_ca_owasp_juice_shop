@@ -1,0 +1,173 @@
+diff --git a/data/static/users.yml b/data/static/users.yml
+index 4b9a386..aac2c53 100644
+--- a/data/static/users.yml
++++ b/data/static/users.yml
+@@ -1,6 +1,6 @@
+ -
+   email: admin
+-  password: 'admin123'
++  password: 'M4+x9FAnNepUWGlYKpWw0WfJ'
+   key: admin
+   role: 'admin'
+   securityQuestion:
+diff --git a/models/product.ts b/models/product.ts
+index dbe7ea6..fedde4d 100644
+--- a/models/product.ts
++++ b/models/product.ts
+@@ -3,8 +3,6 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
+-import * as utils from '../lib/utils'
+-import * as challengeUtils from '../lib/challengeUtils'
+ import {
+   Model,
+   type InferAttributes,
+@@ -14,7 +12,6 @@ import {
+   type Sequelize
+ } from 'sequelize'
+ import { type BasketItemModel } from './basketitem'
+-import { challenges } from '../data/datacache'
+ import * as security from '../lib/insecurity'
+ 
+ export type AlternateImage = {
+@@ -51,14 +48,7 @@ const ProductModelInit = (sequelize: Sequelize) => {
+       description: {
+         type: DataTypes.STRING,
+         set (description: string) {
+-          if (utils.isChallengeEnabled(challenges.restfulXssChallenge)) {
+-            challengeUtils.solveIf(challenges.restfulXssChallenge, () => {
+-              return description?.includes('<iframe src="javascript:alert(`xss`)">') ?? false
+-            })
+-          } else {
+-            description = security.sanitizeSecure(description)
+-          }
+-          this.setDataValue('description', description)
++          this.setDataValue('description', security.sanitizeSecure(description))
+         }
+       },
+       price: DataTypes.DECIMAL,
+diff --git a/routes/basketItems.ts b/routes/basketItems.ts
+index a798a44..1816e17 100644
+--- a/routes/basketItems.ts
++++ b/routes/basketItems.ts
+@@ -85,6 +85,10 @@ export function quantityCheckBeforeBasketItemUpdate () {
+ }
+ 
+ async function quantityCheck (req: Request, res: Response, next: NextFunction, id: number, quantity: number) {
++  if (!Number.isInteger(quantity) || quantity < 1) {
++    res.status(400).json({ error: res.__('Quantity must be a whole number of at least 1.') })
++    return
++  }
+   const product = await QuantityModel.findOne({ where: { ProductId: id } })
+   if (product == null) {
+     throw new Error('No such product found!')
+diff --git a/routes/search.ts b/routes/search.ts
+index 52e1a60..47a8446 100644
+--- a/routes/search.ts
++++ b/routes/search.ts
+@@ -20,7 +20,10 @@ export function searchProducts () {
+   return (req: Request, res: Response, next: NextFunction) => {
+     let criteria: any = req.query.q === 'undefined' ? '' : req.query.q ?? ''
+     criteria = (criteria.length <= 200) ? criteria : criteria.substring(0, 200)
+-    models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' OR description LIKE '%${criteria}%') AND deletedAt IS NULL) ORDER BY name`) // vuln-code-snippet vuln-line unionSqlInjectionChallenge dbSchemaChallenge
++    models.sequelize.query(
++      'SELECT * FROM Products WHERE ((name LIKE $term OR description LIKE $term) AND deletedAt IS NULL) ORDER BY name',
++      { bind: { term: `%${criteria}%` } }
++    ) // vuln-code-snippet vuln-line unionSqlInjectionChallenge dbSchemaChallenge
+       .then(([products]: any) => {
+         const dataString = JSON.stringify(products)
+         if (challengeUtils.notSolved(challenges.unionSqlInjectionChallenge)) { // vuln-code-snippet hide-start
+diff --git a/server.ts b/server.ts
+index 1a62b9f..50e97b9 100644
+--- a/server.ts
++++ b/server.ts
+@@ -379,6 +379,15 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+   }))
+   // vuln-code-snippet end resetPasswordMortyChallenge
+ 
++  /* Throttle password guessing: 10 attempts per client per 5 minutes */
++  app.use('/rest/user/login', rateLimit({
++    windowMs: 5 * 60 * 1000,
++    max: 10,
++    validate: false,
++    // key on the socket address; X-Forwarded-For can be forged by the client
++    keyGenerator: (req: Request) => req.socket.remoteAddress ?? 'unknown'
++  }))
++
+   // vuln-code-snippet start changeProductChallenge
+   /** Authorization **/
+   /* Checks on JWT in Authorization header */ // vuln-code-snippet hide-line
+@@ -399,7 +408,7 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+     .delete(security.denyAll())
+   /* Products: Only GET is allowed in order to view products */ // vuln-code-snippet neutral-line changeProductChallenge
+   app.post('/api/Products', security.isAuthorized()) // vuln-code-snippet neutral-line changeProductChallenge
+-  // app.put('/api/Products/:id', security.isAuthorized()) // vuln-code-snippet vuln-line changeProductChallenge
++  app.put('/api/Products/:id', security.isAuthorized()) // vuln-code-snippet vuln-line changeProductChallenge
+   app.delete('/api/Products/:id', security.denyAll())
+   /* Challenges: GET list of challenges allowed. Everything else forbidden entirely */
+   app.post('/api/Challenges', security.denyAll())
+@@ -437,6 +446,15 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+   /* Captcha Bypass challenge verification */
+   app.post('/api/Feedbacks', verify.captchaBypassChallenge())
+   /* User registration challenge verifications before finale takes over */
++  /* Registration must never let the client choose privileged fields */
++  app.post('/api/Users', (req: Request, res: Response, next: NextFunction) => {
++    req.body.role = security.roles.customer
++    delete req.body.deluxeToken
++    delete req.body.totpSecret
++    delete req.body.isActive
++    delete req.body.lastLoginIp
++    next()
++  })
+   app.post('/api/Users', (req: Request, res: Response, next: NextFunction) => {
+     if (req.body.email !== undefined && req.body.password !== undefined && req.body.passwordRepeat !== undefined) {
+       if (req.body.email.length !== 0 && req.body.password.length !== 0) {
+@@ -713,7 +731,7 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+   app.post('/snippets/fixes', utils.asyncHandler(checkCorrectFix()))
+ 
+   /* Serve metrics before the Angular catch-all so the route is reachable in all environments */
+-  app.get('/metrics', utils.asyncHandler(metrics.serveMetrics()))
++  app.get('/metrics', adminOnly, utils.asyncHandler(metrics.serveMetrics()))
+ 
+   app.use(utils.asyncHandler(serveAngularClient()))
+ 
+@@ -764,11 +782,28 @@ while (!expectedModels.every(model => Object.keys(sequelize.models).includes(mod
+ }
+ logger.info(`Entity models ${colors.bold(Object.keys(sequelize.models).length.toString())} of ${colors.bold(expectedModels.length.toString())} are initialized (${colors.green('SUCCESS')})`)
+ 
++/* Metrics are for operators only. Defined at module scope because /metrics is
++   registered twice: once here and once inside configureApp(). The module-level
++   registration below runs first, so both must carry the guard. */
++const adminOnly = (req: Request, res: Response, next: NextFunction) => {
++  try {
++    const token = utils.jwtFrom(req)
++    const decoded = security.verify(token) && security.decode(token)
++    if (decoded?.data?.role === security.roles.admin) {
++      next()
++      return
++    }
++  } catch {
++    /* jws.verify throws on a malformed token; treat it as unauthorised */
++  }
++  res.status(401).send('Unauthorized')
++}
++
+ // vuln-code-snippet start exposedMetricsChallenge
+ /* Serve metrics */
+ let metricsUpdateLoop: any
+ const Metrics = metrics.observeMetrics() // vuln-code-snippet neutral-line exposedMetricsChallenge
+-app.get('/metrics', utils.asyncHandler(metrics.serveMetrics())) // vuln-code-snippet vuln-line exposedMetricsChallenge
++app.get('/metrics', adminOnly, utils.asyncHandler(metrics.serveMetrics())) // vuln-code-snippet vuln-line exposedMetricsChallenge
+ errorhandler.title = `${config.get<string>('application.name')} (Express ${utils.version('express')})`
+ 
+ export async function start (readyCallback?: () => void) {
+@@ -782,7 +817,7 @@ export async function start (readyCallback?: () => void) {
+ 
+   metricsUpdateLoop = Metrics.updateLoop() // vuln-code-snippet neutral-line exposedMetricsChallenge
+ 
+-  server.listen(port, '127.0.0.1', () => {
++  server.listen(Number(port), '127.0.0.1', () => {
+     logger.info(colors.cyan(`Server listening on port ${colors.bold(`${port}`)}`))
+     startupGauge.set({ task: 'ready' }, (Date.now() - startTime) / 1000)
+     if (process.env.BASE_PATH !== '') {

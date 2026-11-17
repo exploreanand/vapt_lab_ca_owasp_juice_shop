@@ -1,0 +1,6 @@
+ data/static/users.yml |  2 +-
+ models/product.ts     | 12 +-----------
+ routes/basketItems.ts |  4 ++++
+ routes/search.ts      |  5 ++++-
+ server.ts             | 43 +++++++++++++++++++++++++++++++++++++++----
+ 5 files changed, 49 insertions(+), 17 deletions(-)

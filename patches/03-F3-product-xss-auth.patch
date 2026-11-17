@@ -1,0 +1,50 @@
+diff --git a/models/product.ts b/models/product.ts
+index dbe7ea6..fedde4d 100644
+--- a/models/product.ts
++++ b/models/product.ts
+@@ -3,8 +3,6 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
+-import * as utils from '../lib/utils'
+-import * as challengeUtils from '../lib/challengeUtils'
+ import {
+   Model,
+   type InferAttributes,
+@@ -14,7 +12,6 @@ import {
+   type Sequelize
+ } from 'sequelize'
+ import { type BasketItemModel } from './basketitem'
+-import { challenges } from '../data/datacache'
+ import * as security from '../lib/insecurity'
+ 
+ export type AlternateImage = {
+@@ -51,14 +48,7 @@ const ProductModelInit = (sequelize: Sequelize) => {
+       description: {
+         type: DataTypes.STRING,
+         set (description: string) {
+-          if (utils.isChallengeEnabled(challenges.restfulXssChallenge)) {
+-            challengeUtils.solveIf(challenges.restfulXssChallenge, () => {
+-              return description?.includes('<iframe src="javascript:alert(`xss`)">') ?? false
+-            })
+-          } else {
+-            description = security.sanitizeSecure(description)
+-          }
+-          this.setDataValue('description', description)
++          this.setDataValue('description', security.sanitizeSecure(description))
+         }
+       },
+       price: DataTypes.DECIMAL,
+diff --git a/server.ts b/server.ts
+index 79e0229..ec19935 100644
+--- a/server.ts
++++ b/server.ts
+@@ -399,7 +399,7 @@ function configureApp (app: ReturnType<typeof express>, seq: typeof sequelize) {
+     .delete(security.denyAll())
+   /* Products: Only GET is allowed in order to view products */ // vuln-code-snippet neutral-line changeProductChallenge
+   app.post('/api/Products', security.isAuthorized()) // vuln-code-snippet neutral-line changeProductChallenge
+-  // app.put('/api/Products/:id', security.isAuthorized()) // vuln-code-snippet vuln-line changeProductChallenge
++  app.put('/api/Products/:id', security.isAuthorized()) // vuln-code-snippet vuln-line changeProductChallenge
+   app.delete('/api/Products/:id', security.denyAll())
+   /* Challenges: GET list of challenges allowed. Everything else forbidden entirely */
+   app.post('/api/Challenges', security.denyAll())

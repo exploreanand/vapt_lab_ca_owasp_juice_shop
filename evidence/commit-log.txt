@@ -1,0 +1,9 @@
+a2ded09 fix(F6): return 401 rather than 500 for a malformed /metrics token
+4d2348e fix(F6): guard the second /metrics registration as well
+f2554aa chore: coerce port to number for loopback bind
+a28d045 fix(F6): require admin role for /metrics
+16596d8 fix(F5): validate basket quantity is a positive integer
+9064f51 fix(F4): replace default admin password and rate-limit login
+6031bfb fix(F3): sanitise product description and require auth on update
+421d401 fix(F2): bind search term as SQL parameter
+2db203b fix(F1): force customer role on public registration
